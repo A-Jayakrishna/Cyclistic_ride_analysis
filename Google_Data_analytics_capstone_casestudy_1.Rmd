@@ -1,0 +1,415 @@
+---
+title: 'Case Study: How Does a Bike-Share Navigate Speedy Success?'
+author: "Adusumalli Jayakrishna"
+date: "27/01/2022"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Scenario
+
+You are a junior data analyst working in the marketing analyst team at Cyclistic, a bike-share company in Chicago. The director
+of marketing believes the company’s future success depends on maximizing the number of annual memberships. Therefore,
+your team wants to understand how casual riders and annual members use Cyclistic bikes differently. From these insights,
+your team will design a new marketing strategy to convert casual riders into annual members. But first, Cyclistic executives
+must approve your recommendations, so they must be backed up with compelling data insights and professional data
+visualizations.
+
+### Objective
+
+Find out how casual riders and annual members use Cyclistic bikes differently so that Your team can use these insights to create recommendations on how to convert casual riders into annual members.
+
+### Data Source
+
+We use the [Cyclistic’s historical trip data](https://divvy-tripdata.s3.amazonaws.com/index.html) to analyze and identify trends.   
+
+(Note: The datasets have a different name because Cyclistic is a fictional company. For the purposes of this case study,
+the datasets are appropriate and will enable you to answer the business questions. The data has been made available by
+Motivate International Inc. under this [license](https://ride.divvybikes.com/data-license-agreement).)
+
+## Importing required packages
+```{r message=FALSE}
+library(tidyverse) # Makes analyzing data easier
+library(dplyr) # Used for data manipulation
+library(here) # Helps finding files easier
+library(skimr) # Used for finding Summary Statistics
+library(janitor) # Helps clean data
+library(data.table)
+library(lubridate) # Used for manipulating Date attributes
+library(hms)
+```
+
+## Reading data
+
+Reading all the data into a list of data frames and checking each file sizes :-
+
+```{r, results = 'hold'}
+file_names <- list.files(path="./all_data", pattern=".csv", all.files=TRUE,full.names=TRUE)
+print("printing each file size in MB")
+data <- list()
+n <- 1
+for (item in file_names){
+  cat("File name ", item)
+  data[[n]] = read.csv(item,na.strings=c("","NA"))            # reading all the data where empty strings are recorded as NA
+  cat("\n File Size = ")
+  print(object.size(data[[n]]),units = "MB")
+  cat("Number of rows = ",nrow(data[[n]]))
+  cat(" , Number of columns = ",ncol(data[[n]]))
+  cat("\n")
+  n <- n+1
+}
+```
+
+By above results we can observe that all files have same columns and after further analysis we have found that the columns have similar names and also are arranged in the same order.  
+  
+Now we are going to combine the above collected data into a single data frame for further analysis.
+
+```{r, results='hold'}
+df <- rbindlist(data)                   # binding all the data frame into a single data frame
+cat("Final dataframe details \n")
+glimpse((df))
+cat("\n")
+cat("column names of final data \n")
+colnames(df)
+```
+So we have 5,595,063 rows 13 columns Now lets explore the columns in detail  
+
+```{r, results='hold'}
+cat("Here are the number of unique values and na values in each column of the final dataframe \n")
+column <- colnames(df)
+no_of_unique <- c()
+no_of_na <- c()
+
+for(idx in 1:13){
+  no_of_unique <- append(no_of_unique,length(unique(df[[idx]])))
+  no_of_na <- append(no_of_na, sum(is.na(df[[idx]])))
+}
+
+print(data.frame(column,no_of_unique,no_of_na))
+```
+
+From the above results we can say about the data that:-  
+1. ride_id column has almost similar number of rows compared to total number of rows which says that ride_id acts as a primary key in the data but there are some ids that are repeating which should be removed in the cleaning process.  
+2. There are only 3 rideable_type.  
+3. started_at and ended_at are date data type and has no Na values.  
+4. start_station_name, end_station name has more unique values than their respective ids so few station must have similar ids and there are a lot of missing values in these columns.  
+5. There are 4 latitude and longitude columns that describe the start position and end position of each ride.  
+6. member_casual column has only 2 unique values with 0 NA.  
+
+
+## Cleaning and Processing data
+
+### 1. Cleaning
+
+Firstly we see the sample of data
+
+```{r}
+head(df)
+```
+
+Now lets convert the date columns in date datatype (POSIXct) using lubridate package  
+
+```{r}
+df <- df %>%
+  mutate(started_at = dmy_hms(started_at))
+df <- df %>%
+  mutate(ended_at = dmy_hms(ended_at))
+```
+
+Now we remove the rows which contain duplicate ride_id
+
+```{r}
+cat("old number of rows :- ",nrow(df))
+df <- df %>% distinct(ride_id, .keep_all= TRUE)
+cat("\n")
+cat("New number of rows :- ",nrow(df))
+```
+### 2. Processing data
+
+Firstly we will create a new column calculating the ride length (time taken for each ride) which would be of huge help in our analysis.
+
+```{r}
+df <- df %>%
+  mutate(ride_length = as_hms(difftime(ended_at,started_at)))  
+                    # difftime is a function in lubridate package used for calculating time differences                                                              # as_hms is a function in hms package used for converting time itno hh:mm:ss
+```
+
+Now lets find out the weekday of each ride and store it in a new column in numerical format so that it would be helpful for easier analysis.
+
+```{r}
+df <- df %>%
+  mutate(day_of_week = recode(weekdays(started_at),"Sunday"=1,"Monday"=2,"Tuesday"=3,"Wednesday"=4,"Thursday"=5,"Friday"=6,"Saturday"=7))
+```
+
+Here we have marked the days of a week form Sunday to Saturday with values 1 to 7 respectively.
+Now lets do the same for months.
+
+```{r}
+df <- df %>%
+  mutate(day_of_month = month(started_at)) #month function directly converts the months into numerical values
+```
+
+Lets check the newly created data for any errors.
+
+```{r, results='hold'}
+cat("Minimum ride length :- ",min(df$ride_length))
+cat("\n")
+cat("Maximum ride length :- ",max(df$ride_length))
+cat("\n")
+cat("no of NA values in ride_length :- ",sum(is.na(df$ride_length)))
+cat("\n")
+cat("Unique values in day_of_week  :- ",unique(df$day_of_week))
+cat("\n")
+cat("no of NA values in day_of_week :- ",sum(is.na(df$day_of_week)))
+cat("\n")
+cat("Unique values in day_of_month  :- ",unique(df$day_of_month))
+cat("\n")
+cat("no of NA values in day_of_month :- ",sum(is.na(df$day_of_month)))
+cat("\n")
+```
+As you can see above we cannot have ride length less than 0 so we will remove the rides with ride length less than 0.
+
+```{r, results='hold'}
+cat("Number of rows before deletion :- ",nrow(df))
+cat("\n")
+cat("Minimum ride length before deletion :- ",min(df$ride_length))
+cat("\n")
+df <- df %>%
+  filter(ride_length > 0)
+cat("Number of rows after deletion :- ",nrow(df))
+cat("\n")
+cat("Minimum ride length after deletion :- ",min(df$ride_length))
+cat("\n")
+```
+New data frame summary :- 
+
+```{r}
+summary(df)
+```
+Removing the data which we are not going to use any further
+
+We are going to remove **ride_id, started_at, ended_at, start_station_id, end_station_id, start_lat, start_lng, end_lat, end_lng** columns from the data frame.
+
+```{r}
+df <- df %>%
+  select(-ride_id, -started_at, -ended_at, -start_station_id, -end_station_id, -start_lat, -start_lng, -end_lat, -end_lng)
+glimpse(df)
+```
+Now lets create an another data frame which is completely removed of null values in start_station_name, end_station_name columns for any anlysis based on station details.
+
+```{r}
+df2 <- df%>%
+  filter(!is.na(start_station_name),!is.na(end_station_name))
+glimpse(df2)
+```
+Since there is more than a million rows deleted from the data frame we choose to create another data frame for the analysis related to station details.  
+  
+## Analysis and Visualization
+
+### 1. Analysis
+
+Lets do some descriptive analysis before visualizing.  
+Finding total number of casual riders and annual members in the data frame from which we removed all the station names with null values.  
+```{r}
+member_counts <- df2%>%
+  count(member_casual)
+member_counts
+total_casual <- member_counts[1]$n
+total_members <- member_counts[2]$n
+```
+Now lets calculate the percentage of casual riders in the top 100 stations with high casual riders.  
+```{r, results='hold'}
+# top 100 start stations with high casual riders
+top_start <- tabyl(df2,start_station_name,member_casual)
+#top_start[order(top_start$casual,decreasing = TRUE),]
+top_start<- top_start %>% slice_max(casual,n=100)
+per_start <- (sum(top_start$casual)/total_casual)*100
+cat("Percentage of casual riders in 100 start stations with high casual riders :- ",per_start)
+cat("\n")
+# top 100 end stations with high casual riders
+top_end <- tabyl(df2,end_station_name,member_casual)
+#top_end[order(top_end$casual,decreasing = TRUE),]
+top_end<- top_end %>% slice_max(casual,n=100)
+per_end <- (sum(top_end$casual)/total_casual)*100
+cat("Percentage of casual riders in 100 end stations with high casual riders :- ",per_end)
+cat("\n")
+# lets see the total unique stations from both start and end stations
+uni100 <- length(union(top_start$start_station_name,top_end$end_station_name))
+# total number of stations
+total_station <- length(union(df2$start_station_name,df2$end_station_name))
+per_station <- (uni100/total_station)*100
+cat("Percentage of stations with more than 50 % casual riders :- ",per_station)
+cat("\n")
+```
+**Observation:-**  
+From the above three statements we can say that **only 12 % of stations are having more than 50% of casual riders**.  
+
+```{r,results='hold'}
+# top 100 start stations with high annual members
+top_start <- tabyl(df2,start_station_name,member_casual)
+#top_start[order(top_start$member,decreasing = TRUE),]
+top_start<- top_start %>% slice_max(member,n=100)
+per_start <- (sum(top_start$member)/total_members)*100
+cat("Percentage of annual members in 100 start stations with high annual members :- ",per_start)
+cat("\n")
+# top 100 end stations with high annual members
+top_end <- tabyl(df2,end_station_name,member_casual)
+#top_end[order(top_end$member,decreasing = TRUE),]
+top_end<- top_end %>% slice_max(member,n=100)
+per_end <- (sum(top_end$member)/total_members)*100
+cat("Percentage of annual members in 100 end stations with high annual members :- ",per_end)
+cat("\n")
+# lets see the total unique stations from both start and end stations
+uni100 <- length(union(top_start$start_station_name,top_end$end_station_name))
+# total number of stations
+total_station <- length(union(df2$start_station_name,df2$end_station_name))
+per_station <- (uni100/total_station)*100
+cat("Percentage of stations with more than 50 % annual members :- ",per_station)
+cat("\n")
+```
+**Observation:-**  
+Annual members are more spread compared to casual members.
+
+Top 10 most chosen ride path by casual riders :-  
+```{r}
+se <- df2 %>%
+  unite("start_end",start_station_name,end_station_name,sep = ' - ')%>%
+  tabyl(start_end,member_casual)%>%
+  slice_max(casual,n=10)
+se$start_end
+```
+**Observation:-**  
+In the above output we can see most of the start station and end station are similar that means most casual riders take round trips and reach the same station.  
+Now lets count the number of round trips taken by casual riders and annual members.  
+```{r,results='hold'}
+round_trip <- df2%>%
+  filter(start_station_name==end_station_name)%>%
+  group_by(member_casual)%>%
+  count(member_casual)
+cat("Percentage of casual riders taking round trips :- ",((round_trip$n[1])/total_casual)*100)
+cat("\n")
+cat("Percentage of annual members taking round trips :- ",((round_trip$n[2])/total_members)*100)
+cat("\n")
+```
+```{r,results='hold'}
+cat("Maximum ride lengths")
+cat("\n")
+print(df%>%group_by(member_casual)%>%summarise(minimum_ride_length = min(ride_length)))
+cat("\nAverage ride lengths")
+cat("\n")
+print(df%>%group_by(member_casual)%>%summarise(Average_ride_length = mean(ride_length)))
+cat("\nMaximum ride lengths")
+cat("\n")
+print(df%>%group_by(member_casual)%>%summarise(maximum_ride_length = max(ride_length)))
+```
+```{r,results='hold'}
+cat("Week day with more rides\n")
+getmode <- function(v) {
+   uni <- unique(v)
+   uni[which.max(tabulate(match(v, uni)))]
+}
+getmode(df$day_of_week)
+```
+Since we have marked weekdays from Sunday to Saturday **the week day with more rides is Friday**.  
+
+```{r,results='hold'}
+cat("Month with more rides\n")
+getmode(df$day_of_month)
+```
+**July has the more number of rides month wise**.  
+
+### 2. Visualization
+Firstly lets do weekday wise analysis of number of rides taken my members and casuals
+
+```{r}
+ggplot(data = df) +
+  geom_bar(mapping = aes(x=day_of_week,fill=rideable_type))+
+  facet_wrap(~member_casual)+
+  labs(title = "Weekday wise Ride counts", x = "Weekdays(from Sunday to Saturday)", y = "Number of rides")
+```
+  
+  **Observation:-**  
+  As we can see from above graph **members usually take more rides on working days (Monday-Friday)** compared to casual riders also **casual riders take more rides on weekends (Saturday, Sunday)**.  
+Also we can see that **casual riders use docked bikes more than annual members**.
+
+```{r}
+ggplot(data = df) +
+  geom_bar(mapping = aes(x=day_of_month,fill=rideable_type))+
+  facet_wrap(~member_casual)+
+  labs(title = "Month wise Ride counts", x = "Months(from January to December)", y = "Number of rides")
+```
+  
+  **Observation :-**  
+  From the above graph we can say that **casual riders use rides mostly in 3rd quarter of the year**.  
+
+Now lets plot the difference between the average ride lengths of each ride taken by annual members and casual riders in the days of the week of each month.  
+
+```{r,results='hide',message=FALSE}
+# firstly we group the data based on monthly ,weekly, member type details then find the average ride length
+temp <- df%>%
+  group_by(day_of_month,day_of_week,member_casual)%>%
+  summarise(avg_ride_length = mean(ride_length))
+```
+
+```{r,message=FALSE}
+ggplot(data = temp, aes(x = day_of_week, y = avg_ride_length, colour = member_casual)) +
+  geom_point() + geom_line()+
+  facet_wrap(~day_of_month)+
+  labs(title = "Month wise Average time taken for each ride",x = "Weekdays(from Sunday to Saturday)", y = "Average Time taken for each ride")
+```
+  
+  **Observation :-**  
+  As we can see from the above graph that on an average scale **casual riders take more time for each ride than the annual members**.  
+
+Now lets analyze average ride tame taken while using different rideable types.
+
+```{r,results='hide',message=FALSE}
+# firstly we group the data based on week day, member type, rideable type details then find the average ride length
+temp <- df%>%
+  group_by(day_of_week,member_casual,rideable_type)%>%
+  summarise(avg_ride_length = mean(ride_length))
+```
+
+```{r,message=FALSE}
+ggplot(data = temp, aes(x = day_of_week, y = avg_ride_length, colour = rideable_type)) +
+  geom_point() + geom_line()+
+  facet_wrap(~member_casual)+
+  labs(title = "Week wise analysis of average ride length on different rideable types",x = "Weekdays(from Sunday to Saturday)", y = "Average Time taken for each ride")
+```
+  **Observation:-**  
+Firstly we see that **annual members usage of docked bikes is very low**.  
+On an average casual riders take more time on each rides but **casual riders take the highest time for each ride while using docked bikes**.  
+
+## Summary
+Difference between casual riders and annual members in the usage of Cyclistic bikes :-  
+  
+Casual riders  | Annual members
+------------- | -------------
+Average time taken for each ride is larger than annual members.  | Average time taken for each ride is low compared to casual riders.  
+Number of rides are more on Friday.  | Rides are consistent all over the week.  
+Number of rides are high in 3rd quarter of a year.    |   Number of rides in 1st,2nd and 4th quarters of the year are high compared to casual riders.  
+More than 50 % of casual riders ride in less than 13 % of the stations.    |   Annual members are spread more consistently than casual members.  
+Uses all types of rides.   |   classic and electric bikes are mostly used docked bikes are almost not used at all.  
+Average Time taken on docked bikes is extremely high compared to other ride types.   |   Average time taken by electric, classic bikes are almost similar.  
+10% of casual riders take round trips.    |   Only 3% of annual members take round trips.  
+
+## Recommendations for maximizing annual memberships
+1. Reducing ride charges per hour for members can increase the attraction for casual riders.  
+2. Providing weekend sales on Friday,Saturday and Sunday for members can boost the thought of having a membership in casual riders.  
+3. Summer sales for members can increase the number of memberships.  
+4. Instead on annual membership we can provide monthly membership which helps in increasing monthly memberships.  
+5. Increasing the number advertisements around the top 100 stations with high casual riders can attract more than 50% of the casual riders which also helps in reducing money spent on advertisements.  
+6. Having special offers in top 100 stations with high casual stations for annual or monthly members also increases the chances of buying a membership.  
+7. Decreasing hourly charge or cost per ride for annual or monthly members on Docked bikes is also a chance for increasing memberships.    
+8. Reduce charges for round trips for members.  
+  
+**Comments :-**  
+There are more than a million ride details that does not have start station and end station names or latitude, longitude details.
+
+
+
